@@ -1,0 +1,50 @@
+# ─────────────────────────────────────────────
+# Python & Streamlit PDF → MP3 Converter
+# ─────────────────────────────────────────────
+
+# Bytecode and cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.ENV/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Streamlit artifacts
+.streamlit/
+*.log
+
+# Temporary output directory
+tmp_outputs/
+
+# IDE/editor configs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Environment variables or secrets
+.env
+.env.*
+
+# Package management
+*.egg-info/
+dist/
+build/
+
+# Jupyter notebooks (if added later)
+.ipynb_checkpoints/
+
+# Misc
+*.bak
+*.tmp
