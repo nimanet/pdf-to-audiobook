@@ -6,6 +6,7 @@ from typing import List
 import streamlit as st
 import fitz                     # PyMuPDF (fitz) – PDF parser
 from edge_tts import Communicate
+import concurrent.futures
 
 
 # ----------------------------------------------------------------------
@@ -57,6 +58,19 @@ async def batch_texts_to_mp3(tasks: List[dict], voice: str):
         except Exception as exc:
             results.append({"name": task["name"], "success": False, "error": str(exc)})
     return results
+
+
+async def extract_all_texts(uploaded_files):
+    loop = asyncio.get_event_loop()
+    tasks = [
+        asyncio.to_thread(
+            extract_text_from_pdf_bytes,
+            uploaded["bytes"],
+            uploaded["name"]
+        )
+        for uploaded in uploaded_files
+    ]
+    return await asyncio.gather(*tasks)
 
 
 # ----------------------------------------------------------------------
@@ -118,12 +132,13 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     status_placeholder = st.empty()
     generated_files: List[Path] = []
 
-    # Prepare tasks
+    # Parallel PDF extraction
+    status_placeholder.info("🔎 Extracting text from all PDFs in parallel…")
+    extracted_texts = asyncio.run(extract_all_texts(uploaded_files))
+
     tts_tasks = []
     extraction_failures = []
-    for idx, uploaded in enumerate(uploaded_files, start=1):
-        status_placeholder.info(f"🔎 **{uploaded['name']}** – extracting text…")
-        text = extract_text_from_pdf_bytes(uploaded["bytes"], file_name=uploaded["name"])
+    for idx, (uploaded, text) in enumerate(zip(uploaded_files, extracted_texts), start=1):
         if not text:
             st.warning(f"⚠️ No readable text found in **{uploaded['name']}** – skipping.")
             extraction_failures.append(uploaded["name"])
