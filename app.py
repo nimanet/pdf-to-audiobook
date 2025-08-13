@@ -90,32 +90,55 @@ async def extract_all_texts(uploaded_files):
 # UI
 # ----------------------------------------------------------------------
 st.set_page_config(page_title="PDF → MP3 (offline Edge‑TTS)", layout="centered")
-st.title("📚 PDF → MP3 Converter")
-
 st.markdown(
     """
-    Upload **one or more** PDF files, pick a voice, and get back an MP3 for each.
-    The conversion uses the **offline Edge TTS engine** – no external cloud service required.
+    <style>
+    .big-title {font-size:2.2rem;font-weight:700;margin-bottom:0.5em;}
+    .section-header {font-size:1.3rem;font-weight:600;margin-top:2em;margin-bottom:0.5em;}
+    .result-card {background:#f6f6fa;padding:1em 1.5em;border-radius:0.7em;margin-bottom:1em;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+st.markdown('<div class="big-title">📚 PDF → MP3 Converter</div>', unsafe_allow_html=True)
+st.markdown(
     """
+    Convert your PDF documents to MP3 audiobooks using the **offline Edge TTS engine**.<br>
+    <span style="color:#888">No external cloud service required. All processing is local.</span>
+    """,
+    unsafe_allow_html=True,
 )
 
-# Voice selector
-VOICE_OPTIONS = {
-    "English (UK) – Ryan (Neural)": "en-GB-RyanNeural",
-    "English (US) – Jenny (Neural)": "en-US-JennyNeural",
-    "English (US) – Guy (Neural)":   "en-US-GuyNeural",
-    "Spanish (Spain) – Lucia (Neural)": "es-ES-LuciaNeural",
-    "German (Germany) – Jonas (Neural)": "de-DE-JonasNeural",
-}
-voice_name = st.selectbox("🔊 Choose a voice", list(VOICE_OPTIONS.keys()))
-voice_id = VOICE_OPTIONS[voice_name]
+st.divider()
+st.markdown('<div class="section-header">1️⃣ Upload PDF Files & Select Voice</div>', unsafe_allow_html=True)
 
-# File uploader
-uploaded_files = st.file_uploader(
-    "📂 Drag & drop PDF files here (or click to browse)",
-    type=["pdf"],
-    accept_multiple_files=True,
-)
+col1, col2 = st.columns([2, 1], gap="large")
+with col1:
+    st.markdown("**PDF Files**")
+    uploaded_files = st.file_uploader(
+        "📂 Drag & drop PDF files here (or click to browse)",
+        type=["pdf"],
+        accept_multiple_files=True,
+        label_visibility="collapsed",
+    )
+with col2:
+    st.markdown("**Voice Selection**")
+    VOICE_OPTIONS = {
+        "English (UK) – Ryan (Neural)": "en-GB-RyanNeural",
+        "English (US) – Jenny (Neural)": "en-US-JennyNeural",
+        "English (US) – Guy (Neural)":   "en-US-GuyNeural",
+        "Spanish (Spain) – Lucia (Neural)": "es-ES-LuciaNeural",
+        "German (Germany) – Jonas (Neural)": "de-DE-JonasNeural",
+    }
+    voice_name = st.selectbox(
+        "🔊 Choose a voice",
+        list(VOICE_OPTIONS.keys()),
+        label_visibility="collapsed"
+    )
+    voice_id = VOICE_OPTIONS[voice_name]
+
+st.divider()
+st.markdown('<div class="section-header">3️⃣ Conversion Progress</div>', unsafe_allow_html=True)
 
 # ----------------------------------------------------------------------
 # Prevent the same file from being processed twice
@@ -200,7 +223,11 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     # Download section
     # ----------------------------------------------------------------------
     if generated_files:
-        st.subheader("⬇️ Download your MP3 files")
+        st.markdown('<div class="section-header">4️⃣ Download Results</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="result-card">🎉 <b>{len(generated_files)}</b> MP3 file(s) ready for download!</div>',
+            unsafe_allow_html=True,
+        )
         # Individual download buttons
         for mp3_path in generated_files:
             with open(mp3_path, "rb") as f:
