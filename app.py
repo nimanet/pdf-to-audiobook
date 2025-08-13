@@ -118,6 +118,24 @@ uploaded_files = st.file_uploader(
     label_visibility="visible",
 )
 
+if uploaded_files:
+    st.markdown('<div class="section-header">📊 PDF Word Counts</div>', unsafe_allow_html=True)
+    file_data = []
+    for uploaded in uploaded_files:
+        pdf_bytes = uploaded.read()
+        text = extract_text_from_pdf_bytes(pdf_bytes, uploaded.name)
+        word_count = len(text.split())
+        file_data.append({
+            "uploaded": uploaded,
+            "name": uploaded.name,
+            "bytes": pdf_bytes,
+            "text": text,
+            "word_count": word_count,
+        })
+    st.table([{"File": f["name"], "Words": f["word_count"]} for f in file_data])
+else:
+    file_data = []
+
 st.divider()
 st.markdown('<div class="section-header">2️⃣ Select Voice</div>', unsafe_allow_html=True)
 VOICE_OPTIONS = {
@@ -147,30 +165,24 @@ if not uploaded_files:
     st.stop()
 
 if convert_clicked:
-    # ----------------------------------------------------------------------
-    # Create a *temporary* output directory that will vanish automatically
-    # ----------------------------------------------------------------------
     with tempfile.TemporaryDirectory() as tmp_dir:
         output_dir = Path(tmp_dir)
         progress_bar = st.progress(0)
         status_placeholder = st.empty()
         generated_files: List[Path] = []
 
-        # Parallel PDF extraction
-        status_placeholder.info("🔎 Extracting text from all PDFs in parallel…")
-        extracted_texts = asyncio.run(extract_all_texts(uploaded_files))
-
+        # Use cached text from file_data
         tts_tasks = []
         extraction_failures = []
         warning_msgs = []
-        for idx, (uploaded, text) in enumerate(zip(uploaded_files, extracted_texts), start=1):
-            if not text:
-                warning_msgs.append(f"⚠️ No readable text found in **{uploaded.name}** – skipping.")
-                extraction_failures.append(uploaded.name)
+        for f in file_data:
+            if not f["text"]:
+                warning_msgs.append(f"⚠️ No readable text found in **{f['name']}** – skipping.")
+                extraction_failures.append(f["name"])
                 continue
-            base_name = Path(uploaded.name).stem
+            base_name = Path(f["name"]).stem
             out_path = output_dir / f"{base_name}_edge.mp3"
-            tts_tasks.append({"text": text, "out_path": out_path, "name": uploaded.name})
+            tts_tasks.append({"text": f["text"], "out_path": out_path, "name": f["name"]})
 
         # Show all warnings at once
         if warning_msgs:
