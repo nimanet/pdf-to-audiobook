@@ -149,17 +149,23 @@ with tempfile.TemporaryDirectory() as tmp_dir:
 
     tts_tasks = []
     extraction_failures = []
+    warning_msgs = []
     for idx, (uploaded, text) in enumerate(zip(uploaded_files, extracted_texts), start=1):
         if not text:
-            st.warning(f"⚠️ No readable text found in **{uploaded['name']}** – skipping.")
+            warning_msgs.append(f"⚠️ No readable text found in **{uploaded['name']}** – skipping.")
             extraction_failures.append(uploaded["name"])
             continue
         base_name = Path(uploaded['name']).stem
         out_path = output_dir / f"{base_name}_edge.mp3"
         tts_tasks.append({"text": text, "out_path": out_path, "name": uploaded['name']})
         generated_files.append(out_path)
-        progress_bar.progress(idx / len(uploaded_files))
+        # Only update progress every 10 files or at the end
+        if idx % 10 == 0 or idx == len(uploaded_files):
+            progress_bar.progress(idx / len(uploaded_files))
 
+    # Show all warnings at once
+    if warning_msgs:
+        st.warning("\n".join(warning_msgs))
     if extraction_failures:
         st.info(f"ℹ️ The following files could not be extracted and were skipped: {', '.join(extraction_failures)}")
 
@@ -168,14 +174,18 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         status_placeholder.info("🎙️ Converting all files to MP3 in parallel…")
         try:
             results = asyncio.run(batch_texts_to_mp3(tts_tasks, voice=voice_id))
-            success_count = 0
+            success_msgs = []
+            error_msgs = []
             for res in results:
                 if res.get("success"):
-                    st.success(f"✅ **{res['name']}** → `{Path(res['out_path']).name}`")
-                    success_count += 1
+                    success_msgs.append(f"✅ **{res['name']}** → `{Path(res['out_path']).name}`")
                 else:
-                    st.error(f"❌ **{res['name']}** failed: {res['error']}")
-            if success_count == 0:
+                    error_msgs.append(f"❌ **{res['name']}** failed: {res['error']}")
+            if success_msgs:
+                st.success("\n".join(success_msgs))
+            if error_msgs:
+                st.error("\n".join(error_msgs))
+            if not success_msgs:
                 st.warning("⚠️ No files were converted successfully.")
         except Exception as exc:
             st.exception(exc)
