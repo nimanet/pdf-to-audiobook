@@ -44,6 +44,14 @@ def text_to_mp3(text: str, out_path: Path, voice: str = "en-GB-RyanNeural"):
     asyncio.run(_async_tts(text, out_path, voice))
 
 
+async def batch_texts_to_mp3(tasks: List[dict], voice: str):
+    coros = [
+        _async_tts(task["text"], task["out_path"], voice)
+        for task in tasks
+    ]
+    await asyncio.gather(*coros)
+
+
 # ----------------------------------------------------------------------
 # UI
 # ----------------------------------------------------------------------
@@ -78,12 +86,13 @@ uploaded_files = st.file_uploader(
 # ----------------------------------------------------------------------
 # Prevent the same file from being processed twice
 # ----------------------------------------------------------------------
+# Deduplicate and store file bytes to avoid double reading
 if uploaded_files:
-    unique_files: List[object] = []
+    unique_files: List[dict] = []
     seen_names = set()
     for f in uploaded_files:
         if f.name not in seen_names:
-            unique_files.append(f)
+            unique_files.append({"name": f.name, "bytes": f.read()})
             seen_names.add(f.name)
         else:
             st.warning(f"⚠️ Duplicate file `{f.name}` was ignored.")
@@ -97,39 +106,34 @@ if not uploaded_files:
 # Create a *temporary* output directory that will vanish automatically
 # ----------------------------------------------------------------------
 with tempfile.TemporaryDirectory() as tmp_dir:
-    output_dir = Path(tmp_dir)            # Path object for convenience
-
+    output_dir = Path(tmp_dir)
     progress_bar = st.progress(0)
     status_placeholder = st.empty()
-
     generated_files: List[Path] = []
 
+    # Prepare tasks
+    tts_tasks = []
     for idx, uploaded in enumerate(uploaded_files, start=1):
-        # 1️⃣  Show status
-        status_placeholder.info(f"🔎 **{uploaded.name}** – extracting text…")
-
-        # 2️⃣  Extract text
-        pdf_bytes = uploaded.read()
-        text = extract_text_from_pdf_bytes(pdf_bytes)
-
+        status_placeholder.info(f"🔎 **{uploaded['name']}** – extracting text…")
+        text = extract_text_from_pdf_bytes(uploaded["bytes"])
         if not text:
-            st.warning(f"⚠️ No readable text found in **{uploaded.name}** – skipping.")
+            st.warning(f"⚠️ No readable text found in **{uploaded['name']}** – skipping.")
             continue
-
-        # 3️⃣  Convert to MP3
-        base_name = Path(uploaded.name).stem
+        base_name = Path(uploaded['name']).stem
         out_path = output_dir / f"{base_name}_edge.mp3"
-
-        status_placeholder.info(f"🎙️ Converting **{uploaded.name}** to MP3…")
-        try:
-            text_to_mp3(text, out_path, voice=voice_id)
-            generated_files.append(out_path)
-            st.success(f"✅ **{uploaded.name}** → `{out_path.name}`")
-        except Exception as exc:
-            st.error(f"❌ Failed on **{uploaded.name}** – {exc}")
-
-        # 4️⃣  Update progress bar
+        tts_tasks.append({"text": text, "out_path": out_path, "name": uploaded['name']})
+        generated_files.append(out_path)
         progress_bar.progress(idx / len(uploaded_files))
+
+    # Batch TTS conversion
+    if tts_tasks:
+        status_placeholder.info("🎙️ Converting all files to MP3 in parallel…")
+        try:
+            asyncio.run(batch_texts_to_mp3(tts_tasks, voice=voice_id))
+            for task in tts_tasks:
+                st.success(f"✅ **{task['name']}** → `{Path(task['out_path']).name}`")
+        except Exception as exc:
+            st.error(f"❌ Batch TTS conversion failed: {exc}")
 
     status_placeholder.empty()
     st.balloons()
