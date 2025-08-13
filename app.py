@@ -4,6 +4,7 @@ import io
 import zipfile
 from pathlib import Path
 from typing import List
+import time
 
 import streamlit as st
 import fitz                     # PyMuPDF (fitz) – PDF parser
@@ -212,8 +213,10 @@ if convert_clicked:
         generated_files: List[Path] = []  # Reset to only include successful conversions
         if tts_tasks:
             status_placeholder.info("🎙️ Converting all files to MP3 in parallel…")
+            start_time = time.perf_counter()  # Start timer
             try:
                 results = asyncio.run(batch_texts_to_mp3(tts_tasks, voice=voice_id))
+                elapsed = time.perf_counter() - start_time  # End timer
                 success_msgs = []
                 error_msgs = []
                 for res in results:
@@ -228,6 +231,8 @@ if convert_clicked:
                     st.error("\n".join(error_msgs))
                 if not success_msgs:
                     st.warning("⚠️ No files were converted successfully.")
+                # Show elapsed time
+                st.info(f"⏱️ Conversion completed in {elapsed:.1f} seconds.")
             except Exception as exc:
                 st.exception(exc)
         else:
