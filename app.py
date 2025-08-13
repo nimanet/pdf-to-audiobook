@@ -158,10 +158,7 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         base_name = Path(uploaded['name']).stem
         out_path = output_dir / f"{base_name}_edge.mp3"
         tts_tasks.append({"text": text, "out_path": out_path, "name": uploaded['name']})
-        generated_files.append(out_path)
-        # Only update progress every 10 files or at the end
-        if idx % 10 == 0 or idx == len(uploaded_files):
-            progress_bar.progress(idx / len(uploaded_files))
+        # Do NOT add to generated_files here
 
     # Show all warnings at once
     if warning_msgs:
@@ -170,6 +167,7 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         st.info(f"ℹ️ The following files could not be extracted and were skipped: {', '.join(extraction_failures)}")
 
     # Batch TTS conversion
+    generated_files: List[Path] = []  # Reset to only include successful conversions
     if tts_tasks:
         status_placeholder.info("🎙️ Converting all files to MP3 in parallel…")
         try:
@@ -179,6 +177,7 @@ with tempfile.TemporaryDirectory() as tmp_dir:
             for res in results:
                 if res.get("success"):
                     success_msgs.append(f"✅ **{res['name']}** → `{Path(res['out_path']).name}`")
+                    generated_files.append(res['out_path'])  # Only add successful files
                 else:
                     error_msgs.append(f"❌ **{res['name']}** failed: {res['error']}")
             if success_msgs:
