@@ -48,3 +48,6 @@ build/
 # Misc
 *.bak
 *.tmp
+
+# Pytest cache
+.pytest_cache/
