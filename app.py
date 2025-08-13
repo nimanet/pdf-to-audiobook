@@ -1,5 +1,7 @@
 import asyncio
 import tempfile
+import io
+import zipfile
 from pathlib import Path
 from typing import List
 
@@ -199,6 +201,7 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     # ----------------------------------------------------------------------
     if generated_files:
         st.subheader("⬇️ Download your MP3 files")
+        # Individual download buttons
         for mp3_path in generated_files:
             with open(mp3_path, "rb") as f:
                 st.download_button(
@@ -207,5 +210,17 @@ with tempfile.TemporaryDirectory() as tmp_dir:
                     file_name=mp3_path.name,
                     mime="audio/mpeg",
                 )
+        # Download all as ZIP
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zipf:
+            for mp3_path in generated_files:
+                zipf.write(mp3_path, arcname=mp3_path.name)
+        zip_buffer.seek(0)
+        st.download_button(
+            label="⬇️ Download ALL as ZIP",
+            data=zip_buffer,
+            file_name="converted_mp3s.zip",
+            mime="application/zip",
+        )
     else:
         st.info("No MP3 files were generated.")
