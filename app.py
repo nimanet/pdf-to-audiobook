@@ -6,12 +6,12 @@ from pathlib import Path
 from typing import List
 
 import streamlit as st
-import fitz                     # <-- PyMuPDF (aka "fitz")
+import fitz                     # PyMuPDF (fitz) – PDF parser
 from edge_tts import Communicate
 
 
 # ----------------------------------------------------------------------
-# Helper: extract text from a PDF (bytes -> str) – now uses PyMuPDF (fitz)
+# Helper: extract text from a PDF (bytes -> str) – uses PyMuPDF (fitz)
 # ----------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
@@ -22,12 +22,9 @@ def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
     """
     try:
         # Open the PDF directly from the in‑memory bytes object.
-        # `filetype="pdf"` forces fitz to treat the stream as a PDF.
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        # Gather text from each page; `page.get_text()` returns a string.
         texts = [page.get_text() for page in doc]
         doc.close()
-        # Join pages with line breaks and strip any surrounding whitespace.
         return "\n".join(filter(None, texts)).strip()
     except Exception as exc:                     # pragma: no cover
         st.error(f"❌ Could not read PDF: {exc}")
@@ -79,6 +76,20 @@ uploaded_files = st.file_uploader(
     type=["pdf"],
     accept_multiple_files=True,
 )
+
+# ----------------------------------------------------------------------
+# Prevent the same file from being processed twice
+# ----------------------------------------------------------------------
+if uploaded_files:
+    unique_files: List[object] = []
+    seen_names = set()
+    for f in uploaded_files:
+        if f.name not in seen_names:
+            unique_files.append(f)
+            seen_names.add(f.name)
+        else:
+            st.warning(f"⚠️ Duplicate file `{f.name}` was ignored.")
+    uploaded_files = unique_files
 
 if not uploaded_files:
     st.info("👈 Select at least one PDF to start.")
