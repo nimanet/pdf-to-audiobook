@@ -6,26 +6,37 @@ from pathlib import Path
 from typing import List
 
 import streamlit as st
-import PyPDF2
+import fitz                     # <-- PyMuPDF (aka "fitz")
 from edge_tts import Communicate
 
-# --------------------------------------------------------------------------
-# Helper: extract text from a PDF (bytes -> str)
-# --------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------
+# Helper: extract text from a PDF (bytes -> str) – now uses PyMuPDF (fitz)
+# ----------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
+    """
+    Reads the given PDF bytes with PyMuPDF (fitz) and returns the extracted
+    plain‑text content.  If a page cannot be read the function simply skips it
+    and continues with the remaining pages.
+    """
     try:
-        with io.BytesIO(pdf_bytes) as file:
-            reader = PyPDF2.PdfReader(file)
-            return "\n".join(p.extract_text() or "" for p in reader.pages).strip()
-    except Exception as exc:
+        # Open the PDF directly from the in‑memory bytes object.
+        # `filetype="pdf"` forces fitz to treat the stream as a PDF.
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        # Gather text from each page; `page.get_text()` returns a string.
+        texts = [page.get_text() for page in doc]
+        doc.close()
+        # Join pages with line breaks and strip any surrounding whitespace.
+        return "\n".join(filter(None, texts)).strip()
+    except Exception as exc:                     # pragma: no cover
         st.error(f"❌ Could not read PDF: {exc}")
         return ""
 
 
-# --------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 # Async wrapper for Edge‑TTS (offline)
-# --------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 async def _async_tts(text: str, out_path: Path, voice: str = "en-GB-RyanNeural"):
     try:
         communicate = Communicate(text=text, voice=voice)
@@ -38,9 +49,9 @@ def text_to_mp3(text: str, out_path: Path, voice: str = "en-GB-RyanNeural"):
     asyncio.run(_async_tts(text, out_path, voice))
 
 
-# --------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 # UI
-# --------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 st.set_page_config(page_title="PDF → MP3 (offline Edge‑TTS)", layout="centered")
 st.title("📚 PDF → MP3 Converter")
 
@@ -73,9 +84,9 @@ if not uploaded_files:
     st.info("👈 Select at least one PDF to start.")
     st.stop()
 
-# --------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 # Create a *temporary* output directory that will vanish automatically
-# --------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 with tempfile.TemporaryDirectory() as tmp_dir:
     output_dir = Path(tmp_dir)            # Path object for convenience
 
@@ -114,17 +125,9 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     status_placeholder.empty()
     st.balloons()
 
-    # --------------------------------------------------------------------------
-    # Optional: Clear temp files button (won’t do anything because the folder
-    # is already removed automatically after this block)
-    # --------------------------------------------------------------------------
-    # if st.button("🧹 Clear temporary files"):
-    #     shutil.rmtree(output_dir)
-    #     st.success("Temporary files cleared.")
-
-    # --------------------------------------------------------------------------
+    # ----------------------------------------------------------------------
     # Download section
-    # --------------------------------------------------------------------------
+    # ----------------------------------------------------------------------
     if generated_files:
         st.subheader("⬇️ Download your MP3 files")
         for mp3_path in generated_files:
