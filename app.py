@@ -125,14 +125,32 @@ if uploaded_files:
         pdf_bytes = uploaded.read()
         text = extract_text_from_pdf_bytes(pdf_bytes, uploaded.name)
         word_count = len(text.split())
+        # Estimate: 2 seconds per 100 words, minimum 1 second
+        est_time = max(1, int(word_count / 100 * 2))
         file_data.append({
             "uploaded": uploaded,
             "name": uploaded.name,
             "bytes": pdf_bytes,
             "text": text,
             "word_count": word_count,
+            "est_time": est_time,
         })
-    st.table([{"File": f["name"], "Words": f["word_count"]} for f in file_data])
+    st.table([
+        {"File": f["name"], "Words": f["word_count"], "Est. Time (s)": f["est_time"]}
+        for f in file_data
+    ])
+    # Add total word count and total estimated time
+    total_words = sum(f["word_count"] for f in file_data)
+    total_est_time = sum(f["est_time"] for f in file_data)
+    st.markdown(
+        f"""
+        <div style="font-size:1.1rem; margin-top:0.5em;">
+            <b>Total words:</b> {total_words:,} &nbsp;|&nbsp; 
+            <b>Total estimated time:</b> {total_est_time:,} seconds
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 else:
     file_data = []
 
