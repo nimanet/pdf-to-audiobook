@@ -8,6 +8,8 @@ import fitz                     # PyMuPDF (fitz) – PDF parser
 from edge_tts import Communicate
 import concurrent.futures
 
+CONCURRENCY_LIMIT = 4  # Adjust this number based on your CPU/memory
+
 
 # ----------------------------------------------------------------------
 # Helper: extract text from a PDF (bytes -> str) – uses PyMuPDF (fitz)
@@ -20,15 +22,14 @@ def extract_text_from_pdf_bytes(pdf_bytes: bytes, file_name: str = "") -> str:
     continues with the remaining pages. Shows warnings for unreadable pages.
     """
     try:
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        texts = []
-        for i, page in enumerate(doc):
-            try:
-                texts.append(page.get_text())
-            except Exception as page_exc:
-                st.warning(f"⚠️ Page {i+1} in **{file_name}** could not be read: {page_exc}")
-        doc.close()
-        return "\n".join(filter(None, texts)).strip()
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+            texts = []
+            for i, page in enumerate(doc):
+                try:
+                    texts.append(page.get_text())
+                except Exception as page_exc:
+                    st.warning(f"⚠️ Page {i+1} in **{file_name}** could not be read: {page_exc}")
+            return "\n".join(filter(None, texts)).strip()
     except Exception as exc:
         st.error(f"❌ Could not read PDF **{file_name}**: {exc}")
         return ""
@@ -49,25 +50,35 @@ def text_to_mp3(text: str, out_path: Path, voice: str = "en-GB-RyanNeural"):
     asyncio.run(_async_tts(text, out_path, voice))
 
 
+async def _async_tts_limited(text, out_path, voice, sem):
+    async with sem:
+        await _async_tts(text, out_path, voice)
+
+
 async def batch_texts_to_mp3(tasks: List[dict], voice: str):
+    sem = asyncio.Semaphore(CONCURRENCY_LIMIT)
+    coros = [
+        _async_tts_limited(task["text"], task["out_path"], voice, sem)
+        for task in tasks
+    ]
     results = []
-    for task in tasks:
+    for idx, coro in enumerate(asyncio.as_completed(coros), start=1):
         try:
-            await _async_tts(task["text"], task["out_path"], voice)
-            results.append({"name": task["name"], "success": True, "out_path": task["out_path"]})
+            await coro
+            results.append({"name": tasks[idx-1]["name"], "success": True, "out_path": tasks[idx-1]["out_path"]})
         except Exception as exc:
-            results.append({"name": task["name"], "success": False, "error": str(exc)})
+            results.append({"name": tasks[idx-1]["name"], "success": False, "error": str(exc)})
     return results
 
 
+async def extract_text_limited(uploaded, sem):
+    async with sem:
+        return extract_text_from_pdf_bytes(uploaded["bytes"], uploaded["name"])
+
 async def extract_all_texts(uploaded_files):
-    loop = asyncio.get_event_loop()
+    sem = asyncio.Semaphore(CONCURRENCY_LIMIT)
     tasks = [
-        asyncio.to_thread(
-            extract_text_from_pdf_bytes,
-            uploaded["bytes"],
-            uploaded["name"]
-        )
+        extract_text_limited(uploaded, sem)
         for uploaded in uploaded_files
     ]
     return await asyncio.gather(*tasks)
