@@ -45,11 +45,14 @@ def text_to_mp3(text: str, out_path: Path, voice: str = "en-GB-RyanNeural"):
 
 
 async def batch_texts_to_mp3(tasks: List[dict], voice: str):
-    coros = [
-        _async_tts(task["text"], task["out_path"], voice)
-        for task in tasks
-    ]
-    await asyncio.gather(*coros)
+    results = []
+    for task in tasks:
+        try:
+            await _async_tts(task["text"], task["out_path"], voice)
+            results.append({"name": task["name"], "success": True, "out_path": task["out_path"]})
+        except Exception as exc:
+            results.append({"name": task["name"], "success": False, "error": str(exc)})
+    return results
 
 
 # ----------------------------------------------------------------------
@@ -129,11 +132,20 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     if tts_tasks:
         status_placeholder.info("🎙️ Converting all files to MP3 in parallel…")
         try:
-            asyncio.run(batch_texts_to_mp3(tts_tasks, voice=voice_id))
-            for task in tts_tasks:
-                st.success(f"✅ **{task['name']}** → `{Path(task['out_path']).name}`")
+            results = asyncio.run(batch_texts_to_mp3(tts_tasks, voice=voice_id))
+            success_count = 0
+            for res in results:
+                if res.get("success"):
+                    st.success(f"✅ **{res['name']}** → `{Path(res['out_path']).name}`")
+                    success_count += 1
+                else:
+                    st.error(f"❌ **{res['name']}** failed: {res['error']}")
+            if success_count == 0:
+                st.warning("⚠️ No files were converted successfully.")
         except Exception as exc:
-            st.error(f"❌ Batch TTS conversion failed: {exc}")
+            st.exception(exc)
+    else:
+        st.warning("⚠️ No valid PDF files to convert.")
 
     status_placeholder.empty()
     st.balloons()
