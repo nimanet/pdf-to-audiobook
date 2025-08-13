@@ -7,89 +7,11 @@ from typing import List
 import time
 
 import streamlit as st
-import fitz                     # PyMuPDF (fitz) – PDF parser
-from edge_tts import Communicate
-import concurrent.futures
 
-CONCURRENCY_LIMIT = 4  # Adjust this number based on your CPU/memory
+from utils.pdf_utils import extract_text_from_pdf_bytes
+from utils.tts_utils import batch_texts_to_mp3
+from components.word_count_table import show_word_count_table
 
-
-# ----------------------------------------------------------------------
-# Helper: extract text from a PDF (bytes -> str) – uses PyMuPDF (fitz)
-# ----------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def extract_text_from_pdf_bytes(pdf_bytes: bytes, file_name: str = "") -> str:
-    """
-    Reads the given PDF bytes with PyMuPDF (fitz) and returns the extracted
-    plain‑text content. If a page cannot be read, the function skips it and
-    continues with the remaining pages. Shows warnings for unreadable pages.
-    """
-    try:
-        with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
-            texts = []
-            for i, page in enumerate(doc):
-                try:
-                    texts.append(page.get_text())
-                except Exception as page_exc:
-                    st.warning(f"⚠️ Page {i+1} in **{file_name}** could not be read: {page_exc}")
-            return "\n".join(filter(None, texts)).strip()
-    except Exception as exc:
-        st.error(f"❌ Could not read PDF **{file_name}**: {exc}")
-        return ""
-
-
-# ----------------------------------------------------------------------
-# Async wrapper for Edge‑TTS (offline)
-# ----------------------------------------------------------------------
-async def _async_tts(text: str, out_path: Path, voice: str = "en-GB-RyanNeural"):
-    try:
-        communicate = Communicate(text=text, voice=voice)
-        await communicate.save(str(out_path))
-    except Exception as exc:
-        raise RuntimeError(f"TTS conversion failed: {exc}")
-
-
-def text_to_mp3(text: str, out_path: Path, voice: str = "en-GB-RyanNeural"):
-    asyncio.run(_async_tts(text, out_path, voice))
-
-
-async def _async_tts_limited(text, out_path, voice, sem):
-    async with sem:
-        await _async_tts(text, out_path, voice)
-
-
-async def batch_texts_to_mp3(tasks: List[dict], voice: str):
-    sem = asyncio.Semaphore(CONCURRENCY_LIMIT)
-    coros = [
-        _async_tts_limited(task["text"], task["out_path"], voice, sem)
-        for task in tasks
-    ]
-    results = []
-    for idx, coro in enumerate(asyncio.as_completed(coros), start=1):
-        try:
-            await coro
-            results.append({"name": tasks[idx-1]["name"], "success": True, "out_path": tasks[idx-1]["out_path"]})
-        except Exception as exc:
-            results.append({"name": tasks[idx-1]["name"], "success": False, "error": str(exc)})
-    return results
-
-
-async def extract_text_limited(uploaded, sem):
-    async with sem:
-        return extract_text_from_pdf_bytes(uploaded.read(), uploaded.name)
-
-async def extract_all_texts(uploaded_files):
-    sem = asyncio.Semaphore(CONCURRENCY_LIMIT)
-    tasks = [
-        extract_text_limited(uploaded, sem)
-        for uploaded in uploaded_files
-    ]
-    return await asyncio.gather(*tasks)
-
-
-# ----------------------------------------------------------------------
-# UI
-# ----------------------------------------------------------------------
 st.set_page_config(page_title="PDF → MP3 (offline Edge‑TTS)", layout="centered")
 st.markdown(
     """
@@ -119,14 +41,25 @@ uploaded_files = st.file_uploader(
     label_visibility="visible",
 )
 
+# Deduplicate uploaded files by name
 if uploaded_files:
-    st.markdown('<div class="section-header">📊 PDF Word Counts</div>', unsafe_allow_html=True)
+    unique_files = []
+    seen_names = set()
+    for uploaded in uploaded_files:
+        if uploaded.name not in seen_names:
+            unique_files.append(uploaded)
+            seen_names.add(uploaded.name)
+        else:
+            st.warning(f"⚠️ Duplicate file `{uploaded.name}` was ignored.")
+    uploaded_files = unique_files
+
+# Prepare file data and show word count table
+if uploaded_files:
     file_data = []
     for uploaded in uploaded_files:
         pdf_bytes = uploaded.read()
         text = extract_text_from_pdf_bytes(pdf_bytes, uploaded.name)
         word_count = len(text.split())
-        # Estimate: 2 seconds per 100 words, minimum 1 second
         est_time = max(1, int(word_count / 100 * 2))
         file_data.append({
             "uploaded": uploaded,
@@ -136,22 +69,7 @@ if uploaded_files:
             "word_count": word_count,
             "est_time": est_time,
         })
-    st.table([
-        {"File": f["name"], "Words": f["word_count"], "Est. Time (s)": f["est_time"]}
-        for f in file_data
-    ])
-    # Add total word count and total estimated time
-    total_words = sum(f["word_count"] for f in file_data)
-    total_est_time = sum(f["est_time"] for f in file_data)
-    st.markdown(
-        f"""
-        <div style="font-size:1.1rem; margin-top:0.5em;">
-            <b>Total words:</b> {total_words:,} &nbsp;|&nbsp; 
-            <b>Total estimated time:</b> {total_est_time:,} seconds
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    show_word_count_table(file_data)
 else:
     file_data = []
 
@@ -190,7 +108,6 @@ if convert_clicked:
         status_placeholder = st.empty()
         generated_files: List[Path] = []
 
-        # Use cached text from file_data
         tts_tasks = []
         extraction_failures = []
         warning_msgs = []
@@ -203,26 +120,24 @@ if convert_clicked:
             out_path = output_dir / f"{base_name}_edge.mp3"
             tts_tasks.append({"text": f["text"], "out_path": out_path, "name": f["name"]})
 
-        # Show all warnings at once
         if warning_msgs:
             st.warning("\n".join(warning_msgs))
         if extraction_failures:
             st.info(f"ℹ️ The following files could not be extracted and were skipped: {', '.join(extraction_failures)}")
 
-        # Batch TTS conversion
-        generated_files: List[Path] = []  # Reset to only include successful conversions
+        generated_files: List[Path] = []
         if tts_tasks:
             status_placeholder.info("🎙️ Converting all files to MP3 in parallel…")
-            start_time = time.perf_counter()  # Start timer
+            start_time = time.perf_counter()
             try:
                 results = asyncio.run(batch_texts_to_mp3(tts_tasks, voice=voice_id))
-                elapsed = time.perf_counter() - start_time  # End timer
+                elapsed = time.perf_counter() - start_time
                 success_msgs = []
                 error_msgs = []
                 for res in results:
                     if res.get("success"):
                         success_msgs.append(f"✅ **{res['name']}** → `{Path(res['out_path']).name}`")
-                        generated_files.append(res['out_path'])  # Only add successful files
+                        generated_files.append(res['out_path'])
                     else:
                         error_msgs.append(f"❌ **{res['name']}** failed: {res['error']}")
                 if success_msgs:
@@ -231,7 +146,6 @@ if convert_clicked:
                     st.error("\n".join(error_msgs))
                 if not success_msgs:
                     st.warning("⚠️ No files were converted successfully.")
-                # Show elapsed time
                 st.info(f"⏱️ Conversion completed in {elapsed:.1f} seconds.")
             except Exception as exc:
                 st.exception(exc)
@@ -241,25 +155,21 @@ if convert_clicked:
         status_placeholder.empty()
         st.balloons()
 
-        # ----------------------------------------------------------------------
-        # Download section
-        # ----------------------------------------------------------------------
         if generated_files:
             st.markdown('<div class="section-header">4️⃣ Download Results</div>', unsafe_allow_html=True)
             st.markdown(
                 f'<div class="result-card">🎉 <b>{len(generated_files)}</b> MP3 file(s) ready for download!</div>',
                 unsafe_allow_html=True,
             )
-            # Individual download buttons
-            for mp3_path in generated_files:
+            for idx, mp3_path in enumerate(generated_files):
                 with open(mp3_path, "rb") as f:
                     st.download_button(
                         label=f"Download `{mp3_path.name}`",
                         data=f,
                         file_name=mp3_path.name,
                         mime="audio/mpeg",
+                        key=f"download_{mp3_path.name}_{idx}",  # <-- ensures uniqueness
                     )
-            # Download all as ZIP
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w") as zipf:
                 for mp3_path in generated_files:
