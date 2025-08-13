@@ -12,20 +12,24 @@ from edge_tts import Communicate
 # Helper: extract text from a PDF (bytes -> str) – uses PyMuPDF (fitz)
 # ----------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
-def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
+def extract_text_from_pdf_bytes(pdf_bytes: bytes, file_name: str = "") -> str:
     """
     Reads the given PDF bytes with PyMuPDF (fitz) and returns the extracted
-    plain‑text content.  If a page cannot be read the function simply skips it
-    and continues with the remaining pages.
+    plain‑text content. If a page cannot be read, the function skips it and
+    continues with the remaining pages. Shows warnings for unreadable pages.
     """
     try:
-        # Open the PDF directly from the in‑memory bytes object.
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        texts = [page.get_text() for page in doc]
+        texts = []
+        for i, page in enumerate(doc):
+            try:
+                texts.append(page.get_text())
+            except Exception as page_exc:
+                st.warning(f"⚠️ Page {i+1} in **{file_name}** could not be read: {page_exc}")
         doc.close()
         return "\n".join(filter(None, texts)).strip()
-    except Exception as exc:                     # pragma: no cover
-        st.error(f"❌ Could not read PDF: {exc}")
+    except Exception as exc:
+        st.error(f"❌ Could not read PDF **{file_name}**: {exc}")
         return ""
 
 
@@ -116,17 +120,22 @@ with tempfile.TemporaryDirectory() as tmp_dir:
 
     # Prepare tasks
     tts_tasks = []
+    extraction_failures = []
     for idx, uploaded in enumerate(uploaded_files, start=1):
         status_placeholder.info(f"🔎 **{uploaded['name']}** – extracting text…")
-        text = extract_text_from_pdf_bytes(uploaded["bytes"])
+        text = extract_text_from_pdf_bytes(uploaded["bytes"], file_name=uploaded["name"])
         if not text:
             st.warning(f"⚠️ No readable text found in **{uploaded['name']}** – skipping.")
+            extraction_failures.append(uploaded["name"])
             continue
         base_name = Path(uploaded['name']).stem
         out_path = output_dir / f"{base_name}_edge.mp3"
         tts_tasks.append({"text": text, "out_path": out_path, "name": uploaded['name']})
         generated_files.append(out_path)
         progress_bar.progress(idx / len(uploaded_files))
+
+    if extraction_failures:
+        st.info(f"ℹ️ The following files could not be extracted and were skipped: {', '.join(extraction_failures)}")
 
     # Batch TTS conversion
     if tts_tasks:
