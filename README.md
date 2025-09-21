@@ -17,6 +17,14 @@ Main Features:
     Intended Usage:
     Run as a Streamlit app for local PDF-to-audiobook conversion, suitable for privacy-conscious users.
 
+You can adjust the reading speed of the generated audiobooks using the slider in the conversion settings. The speed control allows you to:
+
+-   **Slow down** readings with negative values (e.g., -50%)
+-   **Maintain normal speed** at 0%
+-   **Speed up** readings with positive values (up to +100%)
+
+This feature gives you more flexibility in creating audiobooks that match your preferred listening pace.
+
 ## Features
 
 -   Upload multiple PDFs
@@ -24,6 +32,7 @@ Main Features:
 -   See word counts and estimated conversion times
 -   Batch convert to MP3 in parallel
 -   Download individual MP3s or all as a ZIP
+-   adjust the reading speed
 
 ## Usage
 

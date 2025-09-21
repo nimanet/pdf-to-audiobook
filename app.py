@@ -9,7 +9,7 @@ import time
 import streamlit as st
 
 from utils.pdf_utils import extract_text_from_pdf_bytes
-from utils.tts_utils import batch_texts_to_mp3
+from utils.tts_utils import batch_texts_to_mp3  # Updated import
 from components.word_count_table import show_word_count_table
 
 st.set_page_config(page_title="PDF → MP3 (offline Edge‑TTS)", layout="centered")
@@ -94,7 +94,14 @@ voice_name = st.selectbox(
 voice_id = VOICE_OPTIONS[voice_name]
 
 st.divider()
-st.markdown('<div class="section-header">3️⃣ Conversion</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">3️⃣ Conversion Settings</div>', unsafe_allow_html=True)
+# Add speed control slider (using percentage values for edge-tts compatibility)
+speed_value = st.slider("🗣️ TTS Speed", min_value=-50, max_value=100, value=0, step=5)
+# Convert to edge-tts format
+speed = f"{speed_value}%"
+
+st.divider()
+st.markdown('<div class="section-header">4️⃣ Conversion</div>', unsafe_allow_html=True)
 
 convert_clicked = st.button("🚀 Convert PDFs to MP3", type="primary")
 
@@ -144,7 +151,7 @@ if convert_clicked:
                 
                 for i in range(0, len(tts_tasks), batch_size):
                     batch = tts_tasks[i:i + batch_size]
-                    batch_results = asyncio.run(batch_texts_to_mp3(batch, voice=voice_id))
+                    batch_results = asyncio.run(batch_texts_to_mp3(batch, voice=voice_id, rate=speed))
                     results.extend(batch_results)
                     
                     # Update progress bar for batch completion
@@ -178,7 +185,7 @@ if convert_clicked:
         st.balloons()
 
         if generated_files:
-            st.markdown('<div class="section-header">4️⃣ Download Results</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-header">5️⃣ Download Results</div>', unsafe_allow_html=True)
             st.markdown(
                 f'<div class="result-card">🎉 <b>{len(generated_files)}</b> MP3 file(s) ready for download!</div>',
                 unsafe_allow_html=True,
