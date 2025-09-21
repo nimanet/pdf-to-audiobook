@@ -3,7 +3,7 @@ import tempfile
 import io
 import zipfile
 from pathlib import Path
-from typing import List
+from typing import List, Dict, Any
 import time
 
 import streamlit as st
@@ -50,13 +50,14 @@ if uploaded_files:
             unique_files.append(uploaded)
             seen_names.add(uploaded.name)
         else:
-            st.warning(f"⚠️ Duplicate file `{uploaded.name}` was ignored.")
+            st.warning(f"���️ Duplicate file `{uploaded.name}` was ignored.")
     uploaded_files = unique_files
 
 # Prepare file data and show word count table
 if uploaded_files:
     file_data = []
     for uploaded in uploaded_files:
+        # Read PDF bytes once and reuse
         pdf_bytes = uploaded.read()
         text = extract_text_from_pdf_bytes(pdf_bytes, uploaded.name)
         word_count = len(text.split())
@@ -111,14 +112,20 @@ if convert_clicked:
         tts_tasks = []
         extraction_failures = []
         warning_msgs = []
-        for f in file_data:
+        
+        # Process files with better error handling and progress tracking
+        for i, f in enumerate(file_data):
             if not f["text"]:
-                warning_msgs.append(f"⚠️ No readable text found in **{f['name']}** – skipping.")
+                warning_msgs.append(f"���️ No readable text found in **{f['name']}** – skipping.")
                 extraction_failures.append(f["name"])
                 continue
+            
             base_name = Path(f["name"]).stem
             out_path = output_dir / f"{base_name}_edge.mp3"
             tts_tasks.append({"text": f["text"], "out_path": out_path, "name": f["name"]})
+            
+            # Update progress bar
+            progress_bar.progress((i + 1) / len(file_data))
 
         if warning_msgs:
             st.warning("\n".join(warning_msgs))
@@ -129,28 +136,43 @@ if convert_clicked:
         if tts_tasks:
             status_placeholder.info("🎙️ Converting all files to MP3 in parallel…")
             start_time = time.perf_counter()
+            
             try:
-                results = asyncio.run(batch_texts_to_mp3(tts_tasks, voice=voice_id))
+                # Process tasks in batches to avoid overwhelming the system
+                batch_size = min(5, len(tts_tasks))  # Limit concurrent tasks
+                results = []
+                
+                for i in range(0, len(tts_tasks), batch_size):
+                    batch = tts_tasks[i:i + batch_size]
+                    batch_results = asyncio.run(batch_texts_to_mp3(batch, voice=voice_id))
+                    results.extend(batch_results)
+                    
+                    # Update progress bar for batch completion
+                    progress_bar.progress(min((i + batch_size) / len(tts_tasks), 1.0))
+                
                 elapsed = time.perf_counter() - start_time
+                
                 success_msgs = []
                 error_msgs = []
                 for res in results:
                     if res.get("success"):
-                        success_msgs.append(f"✅ **{res['name']}** → `{Path(res['out_path']).name}`")
+                        success_msgs.append(f"��� **{res['name']}** → `{Path(res['out_path']).name}`")
                         generated_files.append(res['out_path'])
                     else:
                         error_msgs.append(f"❌ **{res['name']}** failed: {res['error']}")
+                        
                 if success_msgs:
                     st.success("\n".join(success_msgs))
                 if error_msgs:
                     st.error("\n".join(error_msgs))
                 if not success_msgs:
-                    st.warning("⚠️ No files were converted successfully.")
+                    st.warning("���️ No files were converted successfully.")
                 st.info(f"⏱️ Conversion completed in {elapsed:.1f} seconds.")
+                
             except Exception as exc:
                 st.exception(exc)
         else:
-            st.warning("⚠️ No valid PDF files to convert.")
+            st.warning("���️ No valid PDF files to convert.")
 
         status_placeholder.empty()
         st.balloons()
